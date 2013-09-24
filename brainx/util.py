@@ -115,6 +115,46 @@ def format_matrix2(data, s, sc, c, lk, co, idc=[],
         return ~(cmat == 0)
     return cmat
 
+def format_matrix3(data, s, c, b, lk, co, idc=[],
+        costlist=[], nouptri=False, asbool=True):
+    """ Function which formats matrix for a particular subject and 
+    particular block (thresholds, upper-tris it) so that we can 
+    make a graph object out of it
+
+    Parameters
+    ----------
+    data : numpy array
+        full data array 5D (subcondition, condition, subject, node, node) 
+    s : int
+        index of subject
+    sc : int
+        index of sub condition
+    c : int
+        index of condition
+    lk : numpy array
+        lookup table for thresholds at each possible cost
+    co : float
+        cost value to threshold at
+    idc : float
+        ideal cost 
+    costlist : list
+        list of possible costs
+    nouptri : bool
+        False zeros out diag and below, True returns symmetric matrix
+    asbool : bool
+        If true returns boolean mask, otherwise returns thresholded w
+        weighted matrix
+    """
+    cmat = slice_data(data, s, b, c) 
+    th = cost2thresh2(co,s,c,b,lk,[],idc,costlist) #get the right threshold
+    cmat = thresholded_arr(cmat,th,fill_val=0)
+    if not nouptri:
+        cmat = np.triu(cmat,1)
+    if asbool:
+        # return boolean mask
+        return ~(cmat == 0)
+    return cmat
+
 def threshold_adjacency_matrix(adj_matrix, cost):
     """threshold adj_matrix at cost
     
@@ -196,30 +236,6 @@ def make_cost_thresh_lookup(adjacency_matrix):
     lookup['actual_cost'] = np.arange(nedges) / float(nedges)
     lookup['cost'] = np.round(lookup['actual_cost'], decimals = 2)
     return lookup
-
-def format_matrix3(data,s,c,b,lk,co,idc = [],costlist=[],nouptri = False):
-    """ Function which formats matrix for a particular subject and particular block (thresholds, upper-tris it) so that we can make a graph object out of it. For subjects with conditions and blocks.
-
-    Parameters:
-    -----------
-    data = full data array
-    s = subject
-    c = cond
-    b = block
-    lk = lookup table for study
-    co = cost value to threshold at
-"""
-
-    cmat = data[c,b,s]
-    th = cost2thresh3(co,s,c,b,lk,idc,costlist) #get the right threshold
-    
-    #cmat = replace_diag(cmat) #replace diagonals with zero
-    cmat = thresholded_arr(cmat,th,fill_val=0)
-
-    if not nouptri:
-        cmat = np.triu(cmat,1)
-        
-    return cmat
 
 
 def cost_size(nnodes):
@@ -745,86 +761,6 @@ def cost2thresh2(cost, sub, axis1, axis0, lk,
         threshold = threshold[0]
       
     return threshold
-
-
-def cost2thresh3(cost, sub, c, bl, lk, idc = [], costlist=[]):
-    """Return the threshold associated with a particular cost.
-
-    The cost is assessed with regard to condition 'c' and block 'bl' and subject 'sub'.
-    
-    Parameters
-    ----------
-    cost: float
-        Cost value for which the associated threshold will be returned.
-
-    sub: integer
-         Subject number.
-
-    bl: integer
-        Block number.
-
-    c: integer
-       Condition number.
-
-    lk: numpy array
-        Lookup table with blocks X subjects X 2 (threshold or cost, in
-        that order) X thresholds/costs.  Each threshold is a value
-        representing the lowest correlation value accepted.  They are
-        ordered from least to greatest.  Each cost is the fraction of
-        all possible edges that exists in an undirected graph made from
-        this block's correlations (thresholded with the corresponding
-        threshold).
-
-    idc: integer or empty list, optional
-        Index in costlist corresponding to cost currently being
-        processed.  By default, idc is an empty list.
-
-    costlist: array_like
-        List of costs that are being queried with the current function
-        in order.
-
-    Returns
-    -------
-    th: float
-        Threshold value in lk corresponding to the supplied cost.  If
-        multiple entries matching cost exist, the smallest threshold
-        corresponding to these is returned.  If no entries matching cost
-        are found, return the threshold corresponding to the previous
-        cost in costlist.
-
-    Notes
-    -----
-    The supplied cost must exactly match an entry in lk for a match to
-    be registered.
-
-    """
-
-    # For this subject and block, find the indices corresponding to this cost.
-    # Note there may be more than one such index.  There will be no such
-    # indices if cost is not a value in the array.
-    ind=np.where(lk[c,b,sub][1]==cost)
-    # The possibility of multiple (or no) indices implies multiple (or no)
-    # thresholds may be acquired here.
-    th=lk[c,b,sub][0][ind]
-    n_thresholds = len(th)
-    if n_thresholds > 1:
-        th=th[0]
-        print(''.join(['Subject %s has multiple thresholds in cond %d block %d ',
-                       'corresponding to a cost of %f.  The smallest is being',
-                       ' used.']) % (sub, c, bl, cost))
-    elif n_thresholds < 1:
-        idc = idc - 1
-        newcost = costlist[idc]
-        th = cost2thresh3(newcost, sub, c, bl, lk, idc, costlist)
-        print(''.join(['Subject %s does not have a threshold in cond %d block %d ',
-                       'corresponding to a cost of %f.  The threshold ',
-                       'matching the nearest previous cost in costlist is ',
-                       'being used.']) % (sub, c, bl, cost))
-    else: # Just one threshold, so use that
-        th=th[0]
-      
-    return th
-
 
 def apply_cost(corr_mat, cost, tot_edges):
     """Threshold corr_mat to achieve cost.
