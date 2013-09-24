@@ -56,20 +56,17 @@ class GraphPartition(object):
           Graph to which the partition index refers to.
 
         index : dict
-          A dict that maps module labels to sets of nodes, this describes the
-          partition in full.
+          A dict of sets that maps module/partition labels to sets of 
+          nodes, this describes the partition in full.
 
         Note
         ----
-        The values in the index dict MUST be real sets, not lists.  No checks
-        are made of this fact, but later the code relies on them being sets and
-        may break in strange manners if the values were stored in non-set
-        objects.
+        The values in the index dict MUST be real sets, not lists. 
         """
         # Store references to the original graph and label dict
         if not type(index) == type({}):
-            raise TypeError('index should be of type dict(), not %s'%type(index))
-
+            raise TypeError('index should be of type dict(),'\
+                    'not %s'%type(index))
         self.index = copy.deepcopy(index)
 
         ## add quick check to make sure the passed index is
@@ -78,6 +75,11 @@ class GraphPartition(object):
        
         # We'll need the graph's adjacency matrix often, so store it once
         self.graph_adj_matrix = nx.adj_matrix(graph)
+        #make sure adj_matrix is binary otherwise raise exception
+        if not self.graph_adj_matrix.sum() == \
+                self.graph_adj_matrix.astype(bool).sum():
+            raise ValueError('Adjacency matrix is weighted, need binary matrix')
+
 
         # Just to be sure, we don't want to count self-links, so we zero out the
         # diagonal.
@@ -174,6 +176,12 @@ class GraphPartition(object):
     ##TODO can we remove this?? CM
     modularity = modularity_newman
 
+
+    def find_unconnected_nodes(self):
+        """ checks for nodes in graph with no edges """
+        graph = nx.from_numpy_matrix(self.graph_adj_matrix)
+        unconnected = [ n for n,d in graph.degree_iter() if d==0 ]
+        return unconnected
 
     def compute_module_merge(self, m1, m2):
         """Merges two modules in a given partition.
@@ -1270,13 +1278,20 @@ def simulated_annealing(g, p0=None, temperature = 50, temp_scaling = 0.995, tmin
 
 def modularity_matrix(g):
     """Modularity matrix of the graph.
+    
+    Parameters
+    ----------
+    g : NetworkX graph
+        input graph
 
-    The eigenvector corresponding to the largest eigenvalue of the modularity
-    matrix is analyzed to assign clusters.
-
+    Returns
+    -------
+    B : numpy array
+        modularity matrix (graph laplacian)
+    
     """
     A = np.asarray(nx.adjacency_matrix(g))
-    k = np.sum(A, axis=0)
+    k = np.sum(A, axis=0) #vertex degree
     M = np.sum(k) # 2x number of edges
 
     return A - ((k * k[:, None]) / float(M))
@@ -1300,6 +1315,11 @@ def newman_partition(g, max_div=np.inf):
 
     """
     A = np.asarray(nx.adjacency_matrix(g))
+    if not A.sum() == A.astype(bool).sum():
+        raise ValueError('Adjacency matrix is weighted, need binary matrix')
+    ## add line to binarize adj_matrix if not binary
+    ## warning?
+    nedges = g.number_of_edges()
     k = np.sum(A, axis=0)
     M = np.sum(A) # 2x number of edges
     B = modularity_matrix(g)
@@ -1312,15 +1332,13 @@ def newman_partition(g, max_div=np.inf):
         ----------
         p : array of ints
             Node labels.
-        B : ndarray
-            Modularity matrix.
+        max_div : int
+            maximum number of divisions (default np.inf)
 
         Returns
         -------
-        pp, qq : list of ints
-            Partitioning of node labels.  If the partition is indivisible, then
-            only `pp` is returned.
-
+        out : list of ints
+            Partitioning of node labels. 
         """
         p = np.asarray(p)
 
@@ -1329,15 +1347,14 @@ def newman_partition(g, max_div=np.inf):
 
         # Construct the subgraph modularity matrix
         A_ = A[p, p[:, None]]
-        k_ = np.sum(A_, axis=0)
-        M_ = np.sum(k_)
+        graph_A_ = nx.from_numpy_matrix(A_, nx.Graph())
+        # make sure partition has edges
+        if graph_A_.number_of_edges() <= 1:
+            return [p]
+        ## grab the relevent part of the modularity matrix
+        Bij = B[p, p[:,None]]
 
-        B_ = B[p, p[:, None]]
-        B_ = B_ - np.diag(k_ - k[p] * M_ / float(M))
-
-#        w, v = nl.eigh(B_)
-        w, v = sl.eigh(B_, eigvals=(len(B_) - 2, len(B_) - 1))
-
+        w, v = sl.eigh(Bij, eigvals=(len(Bij) - 2, len(Bij) - 1))
         # Find the maximum eigenvalue of the modularity matrix
         # If it is smaller than zero, then we won't be able to
         # increase the modularity any further by partitioning.
@@ -1349,13 +1366,21 @@ def newman_partition(g, max_div=np.inf):
         # to nodes in the first partition and 1 for nodes in the second
         v_max = v[:, n]
         mask = (v_max < 0)
+        # if the mask is all True or all False, this will not split the partition
+        # and would create an empty partition
+        # catch by checking max vector contains pos and neg values
+        is_positive = np.sign(v_max) >= 0
+        is_negative = np.sign(v_max) <= 0
+        if np.all(is_positive) or np.all(is_negative):
+            return [p]
         s = np.ones_like(v_max)
         s[mask] = -1
 
         # Compute the increase in modularity due to this partitioning.
         # If it is less than zero, we should rather not have partitioned.
-        q = s[None, :].dot(B_).dot(s)
-        if q <= 0:
+        Bg = Bij - np.diag(Bij.sum(axis=1))
+        deltaq = s[None,:].dot(Bg).dot(s) / (4.0 * nedges)
+        if deltaq <= 0:
             return [p]
 
         # Make the partitioning, and subdivide each
@@ -1379,6 +1404,8 @@ def newman_partition(g, max_div=np.inf):
 def adjust_partition(g, partition, max_iter=None):
     """Adjust partition, using the heuristic method described in Newman (2006),
     to have higher modularity.
+    ## TODO BROKEN FIX ME
+
 
     Parameters
     ----------
