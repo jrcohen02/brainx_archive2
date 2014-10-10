@@ -121,7 +121,6 @@ def format_matrix(data, s, b, lk, co, idc=[], costlist=[],
         return ~(cmat == 0)
     return cmat
 
-
 def format_matrix2(data, s, sc, c, lk, co, idc=[],
         costlist=[], nouptri=False, asbool=True):
     """ Function which formats matrix for a particular subject and 
@@ -162,7 +161,48 @@ def format_matrix2(data, s, sc, c, lk, co, idc=[],
         return ~(cmat == 0)
     return cmat
 
+def format_matrix3(data, s, c, b, lk, co, idc=[],
+        costlist=[], nouptri=False, asbool=True):
+    """ Function which formats matrix for a particular subject and 
+    particular block (thresholds, upper-tris it) so that we can 
+    make a graph object out of it
+
+    Parameters
+    ----------
+    data : numpy array
+        full data array 5D (subcondition, condition, subject, node, node) 
+    s : int
+        index of subject
+    sc : int
+        index of sub condition
+    c : int
+        index of condition
+    lk : numpy array
+        lookup table for thresholds at each possible cost
+    co : float
+        cost value to threshold at
+    idc : float
+        ideal cost 
+    costlist : list
+        list of possible costs
+    nouptri : bool
+        False zeros out diag and below, True returns symmetric matrix
+    asbool : bool
+        If true returns boolean mask, otherwise returns thresholded w
+        weighted matrix
+    """
+    cmat = slice_data(data, s, b, c) 
+    th = cost2thresh2(co,s,c,b,lk,[],idc,costlist) #get the right threshold
+    cmat = thresholded_arr(cmat,th,fill_val=0)
+    if not nouptri:
+        cmat = np.triu(cmat,1)
+    if asbool:
+        # return boolean mask
+        return ~(cmat == 0)
+    return cmat
+
 def threshold_adjacency_matrix(adj_matrix, cost, uptri=False):
+
     """threshold adj_matrix at cost
     
     Parameters
@@ -254,6 +294,7 @@ def make_cost_thresh_lookup(adjacency_matrix):
     lookup['cost'] = np.round(lookup['actual_cost'], decimals = 2)
     return lookup
 
+
 def cost_size(nnodes):
     """create a list of actual costs, tot_edges, edges_short
     given a fixed number of nodes"""
@@ -318,6 +359,20 @@ def store_metrics(b, s, co, metd, arr):
     for met_name, met_val in metd.iteritems():
         arr[idx][met_name] = met_val
     
+
+def store_metrics2(c, b, s, co, metd, arr):
+    """Store a set of metrics into a structured array--for subjects with blocks and conditions"""
+
+    if arr.ndim == 4:
+        idx = c,b,s,co
+    elif arr.ndim == 5:
+        idx = c,b,s,co,slice(None)
+    else:
+        raise ValueError("only know how to handle 4 or 5-d arrays")
+    
+    for met_name, met_val in metd.iteritems():
+        arr[idx][met_name] = met_val
+
 
 def regular_lattice(n,k):
     """Return a regular lattice graph with n nodes and k neighbor connections.
@@ -592,6 +647,7 @@ def mat2graph(cmat,threshold=0.0,threshold2=None):
 # Backwards compatibility name
 mkgraph = mat2graph
 
+
 def mkdigraph(cmat,dmat,threshold=0.0,threshold2=None):
     """Make a graph object out of an adjacency matrix and direction matrix"""
 
@@ -762,7 +818,6 @@ def cost2thresh2(cost, sub, axis1, axis0, lk,
         threshold = threshold[0]
       
     return threshold
-
 
 def apply_cost(corr_mat, cost, tot_edges):
     """Threshold corr_mat to achieve cost.
