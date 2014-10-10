@@ -1292,9 +1292,6 @@ def modularity_matrix(g):
     
     """
 
-    #A1 = nx.adjacency_matrix(g)
-    #A2 = A1.todense()
-    #A = np.asarray(A2)
     #A = np.asarray(nx.adjacency_matrix(g)) # old code--must convert to dense matrix before making into a numpy array
     A = np.asarray(nx.adjacency_matrix(g).todense())
     k = np.sum(A, axis=0) #vertex degree
